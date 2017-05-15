@@ -1,0 +1,6 @@
+child.exe 1
+wrongchld.exe 2
+child.exe 3
+child.exe 4
+wrongchild.exe 5
+5тттт

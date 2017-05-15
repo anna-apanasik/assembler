@@ -1,0 +1,268 @@
+.model small  
+.stack 100h
+.data
+
+count dw 0
+
+data_length dw $-data             ; know size of data
+
+.code
+old_interrupter dd 0                    ;adress of old 
+
+Check_brackets proc far
+
+    cli                           ;dont allow interrupt
+    pushf                          
+    push ax                       
+    in al, 21h                    ;read mask of master 
+    and al, 10111111b   ; allow interrupts of keybord 
+;7-reserve, 6-send scan code from keybord without changing 
+;5-work of mouse doesnt allow 4- work of keybord doesnt allow
+;3-reserve, 2- value for register of states; 1-0-allow int from moue and keyb
+    out 21h, al                   ;write mask of master
+    pop ax
+    call dword ptr cs:[old_interrupter]   ;call old handler
+    pusha                        
+
+    push ds 
+    push es
+    
+    mov ax, @data
+    mov es, ax
+    mov ax, 0B800h
+    mov ds, ax
+        
+    xor si, si
+   ; inc si    
+Drawing:                ; draw all info in white colour
+    cmp si, 4000                 ; if it's end of videobuffer, then we go check brackets
+    je end_of_buffer                 
+    ;the first byte -askii, the second- attribute
+    inc si
+  
+	mov al, ds:[si]             
+    cmp al, 4                   ; red colour
+    je red_colour
+	
+ ;   cmp al, '('
+;    je  red_colour
+;    
+;    cmp al, '['
+;    je  red_colour
+;    
+;    cmp al, '{'
+;    je  red_colour
+;    
+;    cmp al, ')'
+;    je  red_colour
+;    
+;    cmp al, ']'
+;    je  red_colour
+;    
+;    cmp al, '}'
+;    je  red_colour
+;     
+;    inc si
+;    inc si
+;     
+;    jmp after_drawing
+;   inc si                       ; now we stay on attribute
+    
+   
+    
+after_drawing:     
+    inc si                      ;after that we'll stay on symbol
+    jmp Drawing
+    
+red_colour:
+ ;   inc si                   ; stay on attribute  
+;    mov al, ds:[si] 
+;    cmp al, 4
+;    jne  after_drawing
+  ;   mov al,7
+    mov ds:[si], 7            ; draw in white colour
+    jmp after_drawing   
+  
+end_of_buffer: 
+ 
+    xor si, si                   
+    
+checking:
+    cmp si, 4000                
+    je draw_brackets             
+
+    mov al, ds:[si]              ; symbol from current position
+
+    cmp al, '('
+    je opening_ordinary_bracket
+
+    cmp al, '{'
+    je opening_figure_bracket
+
+    cmp al, '['
+    je opening_square_bracket
+
+    cmp al, ')'
+    je closimg_bracket
+
+    cmp al, '}'
+    je closimg_bracket
+
+    cmp al, ']'
+    je closimg_bracket
+
+after_addition_and_checking:
+    
+    inc si                     ; stand on next symbol    
+    inc si
+    jmp checking
+
+opening_ordinary_bracket:
+    
+    push si                      ; remember the position (coordinate)
+    mov al, ')'                  ; add to stack needing closing bracket
+    push ax                      ; remember the bracket
+    
+    mov bx, count              
+    inc bx                       ; improve counter of numbers in stack
+    mov count, bx              
+
+    jmp after_addition_and_checking
+
+opening_figure_bracket:
+    
+    push si                     
+    mov al, '}'
+    push ax                     
+    
+    mov bx, count             
+    inc bx                      
+    mov count, bx             
+
+    jmp after_addition_and_checking   
+
+opening_square_bracket:
+    
+    push si                      
+    mov al, ']'
+    push ax                      
+    
+    mov bx, count             
+    inc bx                      
+    mov count, bx              
+
+    jmp after_addition_and_checking     
+
+closimg_bracket:
+
+    mov bx, count              
+    cmp bx, 0                    ; check amount of brackets
+    je draw_closing_bracket      ; if count = 0, stack is empty =>draw all closing brackets
+
+    pop bx                       ; get last bracket
+    cmp bl, al                    
+    jne not_equal_brackets       ; if they don't equal,then go 
+
+    mov bx, count            
+    dec bx                       ; reduce count
+    mov count, bx              
+
+    pop bx                       ;delete coordinate from stack
+
+    jmp after_addition_and_checking
+
+not_equal_brackets:
+;check situation like (]) -wrong brackets
+    push bx                      ; return symbol in stack
+
+    inc si                       
+    mov ds:[si], 4               ;  change colour of bracket
+    dec si                       
+    push si 			; remember current coordinate of bracket
+
+    cmp al, ')'			; if it's not closing ordinary bracket
+	jne other_brackets	;  we need to change askicode of figure or square closing bracket to opening '}' - 2='{'-it's askicode
+
+	sub al, 1					 ; change ordinary closing bracket to opening bracket ')' - 1 = '('
+	jmp add_to_stack					 
+
+other_brackets:
+
+	sub al, 2					 ; change aski of not ordinary closing bracket ']' - 2 = '['
+
+add_to_stack:
+
+    push ax				         ; remember symbol of this bracket
+
+    mov bx, count              
+    inc bx                     ; improve counter
+    mov count, bx              
+
+    jmp after_addition_and_checking
+
+draw_closing_bracket:
+
+    inc si                       
+    mov ds:[si], 4               ; change colour 
+    dec si                         
+
+    jmp after_addition_and_checking
+
+draw_brackets:
+    
+    mov bx, count
+
+draw_brackets_in_red:
+
+    cmp bx, 0
+    je end_check_brackets
+;()       ;1)     ;count=2
+    pop si                       ; get coordinate of wrong bracket 
+    pop si                       ; and bracket too
+
+    inc si                       ; stay on attribute
+    mov ds:[si], 4             
+
+    dec bx
+
+    jmp draw_brackets_in_red
+ 
+end_check_brackets:
+    
+    mov count, bx
+
+    pop es 
+    pop ds
+
+    popa   
+    sti                           
+    iret                         
+ ;in the begining? get IP from stack, after that CS and register of flags 
+
+Check_brackets endp
+
+main:
+
+    mov ax, @data
+    mov ds, ax
+    
+    mov ah, 35h                     ;read vector of interrupt
+    mov al, 09h
+    int 21h                         ;in ES:BX -adress of handler interrupt 
+    mov word ptr cs:[old_interrupter], bx   ;remember our handler; bx-offset of handler
+    mov word ptr cs:[old_interrupter+2], es          ;segment laof handler
+    mov ah, 25h                     ;install new handler
+    mov al, 09h                     
+    push cs                         ;install new handler 09h
+    pop ds                          ;move in DS CS (prepare segment of adree for new handler)
+    mov dx, offset Check_brackets     
+    int 21h                         ;DS:DX - adree of new handler
+    
+    mov ah, 31h                     ;do this program like a resident program
+    mov al, 00h                     
+    mov dx, (program_length / 16) + (data_length / 16) + 16 + 16 + 2 
+    ;size in 16bytes segments: size of code+ data+ size of stack+ size of psp + 1 bye for program_lenght and data_lenght
+    int 21h 
+    
+program_length dw $-code                 ;size of code
+end main 
